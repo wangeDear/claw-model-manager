@@ -159,6 +159,15 @@
       .modal-actions { padding: 16px 24px 22px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 10px; }
       .field-help { color: var(--faint); font-size: 11px; line-height: 1.5; margin-top: -2px; }
 
+      .preview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+      .preview-card { padding: 12px; border-radius: 16px; border: 1px solid var(--line); background: rgba(7,10,19,.36); }
+      .preview-card span { color: var(--muted); font-size: 11px; }
+      .preview-card strong { display: block; margin-top: 5px; font-size: 18px; }
+      .preview-list { margin: 10px 0 0; padding-left: 18px; color: #fecdd3; font-size: 12px; line-height: 1.6; }
+      .preview-ok { color: var(--ok); font-weight: 800; }
+      .preview-bad { color: var(--danger); font-weight: 800; }
+      .preview-json { max-height: 220px; min-height: 120px; margin-top: 10px; }
+
       @media (max-width: 1180px) {
         body { overflow: auto; }
         .app { height: auto; min-height: 100vh; }
@@ -180,6 +189,7 @@
         <div class="hero-actions">
           <div id="status" class="status-chip">就绪</div>
           <button id="reloadBtn">重新加载</button>
+          <button id="previewBtn">预览校验</button>
           <button id="saveBtn" class="primary">保存配置</button>
         </div>
       </header>
@@ -255,6 +265,12 @@
               <select id="reasoning"><option value="">(未设置)</option><option value="true">true</option><option value="false">false</option></select>
               <label>input（逗号分隔）</label><input id="modelInput" placeholder="text,image" />
               <label>cost JSON（可选）</label><textarea id="modelCost" placeholder='{"input":0,"output":0}'></textarea>
+            </div>
+
+
+            <div class="section">
+              <h3>Preview & Validation</h3>
+              <div id="previewPanel" class="empty">点击顶部“预览校验”，查看当前编辑状态是否可安全保存。</div>
             </div>
 
             <div class="section">
@@ -447,7 +463,49 @@
         } catch (e) { status(`保存异常: ${e.message}`, false); }
       }
 
+
+
+      async function previewConfig() {
+        try {
+          applyEditorToState();
+          status("校验中…");
+          const res = await fetch("/api/preview", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ path: el("configPath").value.trim(), providers: state.providers, defaultModels: state.defaults, primary: state.primary })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "预览失败");
+          renderPreview(data);
+          status(data.ok ? "预览通过，可保存" : "预览发现问题", data.ok);
+        } catch (e) {
+          el("previewPanel").innerHTML = `<div class="preview-bad">预览失败：${escapeHtml(e.message)}</div>`;
+          status(`预览失败: ${e.message}`, false);
+        }
+      }
+
+      function renderPreview(data) {
+        const summary = data.summary || {};
+        const errors = data.errors || [];
+        const managed = data.managed || {};
+        el("previewPanel").className = "";
+        el("previewPanel").innerHTML = `
+          <div class="preview-grid">
+            <div class="preview-card"><span>Providers</span><strong>${escapeHtml(summary.providerCount ?? 0)}</strong></div>
+            <div class="preview-card"><span>Models</span><strong>${escapeHtml(summary.modelCount ?? 0)}</strong></div>
+            <div class="preview-card"><span>Defaults</span><strong>${escapeHtml(summary.defaultCount ?? 0)}</strong></div>
+          </div>
+          <div class="${data.ok ? "preview-ok" : "preview-bad"}">${data.ok ? "✓ 配置校验通过" : "✕ 配置存在问题"}</div>
+          <div class="hint">Primary：${escapeHtml(summary.primary || "未设置")} · 存在：${summary.primaryExists ? "是" : "否"} · 在默认列表：${summary.primaryInDefaults ? "是" : "否"}</div>
+          ${errors.length ? `<ul class="preview-list">${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join("")}</ul>` : ""}
+          ${summary.missingDefaults?.length ? `<div class="glass-note" style="margin-top:10px">缺失默认模型：${summary.missingDefaults.map(escapeHtml).join(", ")}</div>` : ""}
+          <label>将要保存的 managed 配置预览</label>
+          <textarea class="preview-json" readonly>${escapeHtml(JSON.stringify(managed, null, 2))}</textarea>
+        `;
+      }
+
       el("reloadBtn").onclick = loadConfig;
+      el("previewBtn").onclick = previewConfig;
       el("saveBtn").onclick = saveConfig;
       el("providerSearch").oninput = renderProviders;
       el("modelSearch").oninput = renderModels;
