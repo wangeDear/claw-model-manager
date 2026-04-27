@@ -142,6 +142,10 @@
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
       .btn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
       .btn-row button { flex: 1; min-width: 130px; }
+
+      .quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0 12px; }
+      .quick-actions button { min-width: 0; }
+      @media (max-width: 720px) { .quick-actions { grid-template-columns: 1fr; } }
       .hint { color: var(--muted); font-size: 12px; line-height: 1.55; }
       .glass-note { padding: 12px; border: 1px solid rgba(251,191,36,.28); border-radius: 16px; color: #fde68a; background: rgba(251,191,36,.07); font-size: 12px; line-height: 1.55; }
       .provider-label { color: var(--brand); }
@@ -294,6 +298,12 @@
 
             <div class="section">
               <h3>Default Policy</h3>
+              <div class="quick-actions">
+                <button id="setPrimaryBtn" type="button">设为 Primary</button>
+                <button id="addDefaultBtn" type="button">加入 Default</button>
+                <button id="removeDefaultBtn" type="button">移出 Default</button>
+              </div>
+              <div class="hint">优先使用上方快捷操作；JSON 区保留给高级批量编辑。</div>
               <label>默认可用模型 refs (JSON Object)</label>
               <textarea id="defaultModels"></textarea>
               <label>primary</label>
@@ -552,9 +562,46 @@
         }
       }
 
+
+      function currentModelRef() {
+        if (!state.providerId || !state.modelId) return "";
+        return modelRef(state.providerId, state.modelId);
+      }
+
+      function addCurrentModelToDefaults() {
+        const ref = currentModelRef();
+        if (!ref) return status("请先选择一个 Model", false);
+        state.defaults = { ...state.defaults, [ref]: state.defaults[ref] || {} };
+        renderAll();
+        status(`${ref} 已加入 Default，记得保存配置`);
+      }
+
+      function removeCurrentModelFromDefaults() {
+        const ref = currentModelRef();
+        if (!ref) return status("请先选择一个 Model", false);
+        if (!state.defaults[ref]) return status(`${ref} 不在 Default 中`, false);
+        const next = { ...state.defaults };
+        delete next[ref];
+        state.defaults = next;
+        renderAll();
+        status(`${ref} 已移出 Default，记得保存配置`);
+      }
+
+      function setCurrentModelPrimary() {
+        const ref = currentModelRef();
+        if (!ref) return status("请先选择一个 Model", false);
+        state.defaults = { ...state.defaults, [ref]: state.defaults[ref] || {} };
+        state.primary = ref;
+        renderAll();
+        status(`${ref} 已设为 Primary，并自动加入 Default，记得保存配置`);
+      }
+
       el("reloadBtn").onclick = loadConfig;
       el("previewBtn").onclick = previewConfig;
       el("saveBtn").onclick = saveConfig;
+      el("setPrimaryBtn").onclick = setCurrentModelPrimary;
+      el("addDefaultBtn").onclick = addCurrentModelToDefaults;
+      el("removeDefaultBtn").onclick = removeCurrentModelFromDefaults;
       el("providerSearch").oninput = renderProviders;
       el("modelSearch").oninput = renderModels;
       const modal = {
