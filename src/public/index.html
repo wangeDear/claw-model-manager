@@ -168,6 +168,25 @@
       .preview-bad { color: var(--danger); font-weight: 800; }
       .preview-json { max-height: 220px; min-height: 120px; margin-top: 10px; }
 
+      .modal.preview-modal { width: min(1380px, calc(100vw - 36px)); max-height: calc(100vh - 36px); }
+      .modal.preview-modal .modal-body { padding: 0; overflow: hidden; }
+      .modal.preview-modal .modal-actions { display: none; }
+      .preview-stage { height: min(76vh, 860px); display: grid; grid-template-columns: 380px 1fr; min-height: 0; }
+      .preview-aside { padding: 20px; border-right: 1px solid var(--line); overflow: auto; background: rgba(7,10,19,.22); }
+      .preview-code-wrap { min-width: 0; display: flex; flex-direction: column; background: #060914; }
+      .preview-code-head { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .preview-code-title { color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .preview-copy { width: auto; padding: 7px 10px; font-size: 12px; }
+      .code-render { margin: 0; flex: 1; overflow: auto; padding: 20px 24px; color: #dbeafe; background: radial-gradient(circle at top left, rgba(124,255,224,.06), transparent 34%), #050816; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.65; tab-size: 2; }
+      .code-render .key { color: #7dd3fc; }
+      .code-render .string { color: #86efac; }
+      .code-render .number { color: #fbbf24; }
+      .code-render .boolean { color: #c084fc; }
+      .code-render .null { color: #94a3b8; }
+      .preview-summary-title { margin: 0 0 12px; font-size: 18px; letter-spacing: -.02em; }
+      .preview-error-block { margin-top: 12px; padding: 12px; border-radius: 16px; background: rgba(251,113,133,.08); border: 1px solid rgba(251,113,133,.28); }
+      @media (max-width: 900px) { .preview-stage { grid-template-columns: 1fr; height: 78vh; } .preview-aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 300px; } }
+
       @media (max-width: 1180px) {
         body { overflow: auto; }
         .app { height: auto; min-height: 100vh; }
@@ -270,7 +289,7 @@
 
             <div class="section">
               <h3>Preview & Validation</h3>
-              <div id="previewPanel" class="empty">点击顶部“预览校验”，查看当前编辑状态是否可安全保存。</div>
+              <div id="previewPanel" class="empty">点击顶部“预览校验”，将以大屏弹窗展示校验结论与代码级配置预览。</div>
             </div>
 
             <div class="section">
@@ -488,21 +507,49 @@
         const summary = data.summary || {};
         const errors = data.errors || [];
         const managed = data.managed || {};
-        el("previewPanel").className = "";
-        el("previewPanel").innerHTML = `
+        const jsonText = JSON.stringify(managed, null, 2);
+        const summaryHtml = `
+          <h3 class="preview-summary-title">${data.ok ? "配置可安全保存" : "配置需要修正"}</h3>
           <div class="preview-grid">
             <div class="preview-card"><span>Providers</span><strong>${escapeHtml(summary.providerCount ?? 0)}</strong></div>
             <div class="preview-card"><span>Models</span><strong>${escapeHtml(summary.modelCount ?? 0)}</strong></div>
             <div class="preview-card"><span>Defaults</span><strong>${escapeHtml(summary.defaultCount ?? 0)}</strong></div>
           </div>
-          <div class="${data.ok ? "preview-ok" : "preview-bad"}">${data.ok ? "✓ 配置校验通过" : "✕ 配置存在问题"}</div>
-          <div class="hint">Primary：${escapeHtml(summary.primary || "未设置")} · 存在：${summary.primaryExists ? "是" : "否"} · 在默认列表：${summary.primaryInDefaults ? "是" : "否"}${summary.primaryIgnoredByOAuth ? " · OAuth 鉴权已跳过强校验" : ""}</div>
-          ${summary.ignoredOAuthProviders?.length ? `<div class="glass-note" style="margin-top:10px">OAuth Provider 已跳过普通模型强校验：${summary.ignoredOAuthProviders.map(escapeHtml).join(", ")}</div>` : ""}
-          ${errors.length ? `<ul class="preview-list">${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join("")}</ul>` : ""}
-          ${summary.missingDefaults?.length ? `<div class="glass-note" style="margin-top:10px">缺失默认模型：${summary.missingDefaults.map(escapeHtml).join(", ")}</div>` : ""}
-          <label>将要保存的 managed 配置预览</label>
-          <textarea class="preview-json" readonly>${escapeHtml(JSON.stringify(managed, null, 2))}</textarea>
+          <div class="${data.ok ? "preview-ok" : "preview-bad"}">${data.ok ? "✓ 后端校验通过" : "✕ 后端校验未通过"}</div>
+          <div class="hint" style="margin-top:8px">Primary：${escapeHtml(summary.primary || "未设置")}<br>存在：${summary.primaryExists ? "是" : "否"} · 在默认列表：${summary.primaryInDefaults ? "是" : "否"}${summary.primaryIgnoredByOAuth ? " · OAuth 鉴权已跳过强校验" : ""}</div>
+          ${summary.ignoredOAuthProviders?.length ? `<div class="glass-note" style="margin-top:12px">OAuth Provider 已跳过普通模型强校验：${summary.ignoredOAuthProviders.map(escapeHtml).join(", ")}</div>` : ""}
+          ${summary.missingDefaults?.length ? `<div class="glass-note" style="margin-top:12px">缺失默认模型：${summary.missingDefaults.map(escapeHtml).join(", ")}</div>` : ""}
+          ${errors.length ? `<div class="preview-error-block"><strong class="preview-bad">错误列表</strong><ul class="preview-list">${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join("")}</ul></div>` : ""}
         `;
+        el("previewPanel").className = data.ok ? "preview-ok" : "preview-bad";
+        el("previewPanel").textContent = data.ok ? "最近一次预览：通过" : "最近一次预览：存在问题";
+        modal.open({
+          title: "配置预览与校验",
+          description: "保存前的大屏审阅视图。左侧是校验结论，右侧是将要写入的 managed 配置代码。",
+          submitText: "关闭",
+          variant: "preview-modal",
+          body: `<div class="preview-stage"><aside class="preview-aside">${summaryHtml}</aside><section class="preview-code-wrap"><div class="preview-code-head"><span class="preview-code-title">managed.config.json</span><button class="preview-copy" type="button" onclick="copyPreviewJson()">复制代码</button></div><pre class="code-render"><code>${highlightJson(jsonText)}</code></pre></section></div>`,
+          onSubmit: () => modal.close()
+        });
+        window.__previewJson = jsonText;
+      }
+
+      function highlightJson(json) {
+        return escapeHtml(json)
+          .replace(/(&quot;[^&]*?&quot;)(?=\s*:)/g, '<span class="key">$1</span>')
+          .replace(/:\s*(&quot;[^&]*?&quot;)/g, ': <span class="string">$1</span>')
+          .replace(/(true|false)/g, '<span class="boolean">$1</span>')
+          .replace(/(null)/g, '<span class="null">$1</span>')
+          .replace(/(-?\d+(?:\.\d+)?)/g, '<span class="number">$1</span>');
+      }
+
+      async function copyPreviewJson() {
+        try {
+          await navigator.clipboard.writeText(window.__previewJson || "");
+          status("预览 JSON 已复制");
+        } catch {
+          status("复制失败，请手动选择代码", false);
+        }
       }
 
       el("reloadBtn").onclick = loadConfig;
@@ -512,11 +559,12 @@
       el("modelSearch").oninput = renderModels;
       const modal = {
         submit: null,
-        open({ title, description, body, submitText = "确认", onSubmit }) {
+        open({ title, description, body, submitText = "确认", onSubmit, variant = "" }) {
           el("modalTitle").textContent = title;
           el("modalDescription").textContent = description;
           el("modalBody").innerHTML = body;
           el("modalSubmitBtn").textContent = submitText;
+          el("modalBackdrop").querySelector(".modal").className = `modal ${variant}`.trim();
           this.submit = onSubmit;
           el("modalBackdrop").classList.add("open");
           el("modalBackdrop").setAttribute("aria-hidden", "false");
@@ -527,6 +575,7 @@
           el("modalBackdrop").classList.remove("open");
           el("modalBackdrop").setAttribute("aria-hidden", "true");
           this.submit = null;
+          el("modalBackdrop").querySelector(".modal").className = "modal";
         }
       };
 
