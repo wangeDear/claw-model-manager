@@ -7,15 +7,16 @@
     "build": "tsc -p tsconfig.json && mkdir -p dist/public && cp -r src/public/* dist/public/",
     "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "start:backend": "node dist/backend.js",
+    "start:backend": "node dist/src/backend.js",
     "dev:backend": "tsx src/backend.ts"
   },
   "dependencies": {
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.19.1",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.4",
-    "tsx": "^4.19.1"
+    "vitest": "^2.1.4"
   }
 }

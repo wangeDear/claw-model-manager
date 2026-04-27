@@ -13,7 +13,7 @@ import type { DefaultModels, ProvidersConfig } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const WEB_UI_PATH = join(__dirname, "public", "index.html");
+const WEB_UI_PATH = join(__dirname, "..", "public", "index.html");
 
 interface SavePayload {
   providers: ProvidersConfig;
@@ -95,11 +95,11 @@ async function handler(req: IncomingMessage, res: ServerResponse): Promise<void>
   }
 }
 
-export function startServer(port = 3760): void {
+export function startServer(port = 3760, host = "127.0.0.1"): void {
   createServer((req, res) => {
     void handler(req, res);
-  }).listen(port, () => {
-    console.log(`ClawModel Manager backend listening on http://127.0.0.1:${port}`);
+  }).listen(port, host, () => {
+    console.log(`ClawModel Manager backend listening on http://${host}:${port}`);
     console.log(`Default OpenClaw config path: ${DEFAULT_CONFIG_PATH}`);
   });
 }
@@ -107,5 +107,5 @@ export function startServer(port = 3760): void {
 if (process.argv[1]?.endsWith("backend.js")) {
   const portArg = process.argv[2];
   const port = portArg ? Number(portArg) : 3760;
-  startServer(Number.isFinite(port) ? port : 3760);
+  startServer(Number.isFinite(port) ? port : 3760, process.env.HOST ?? "127.0.0.1");
 }
