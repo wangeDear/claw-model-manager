@@ -496,7 +496,8 @@
             <div class="preview-card"><span>Defaults</span><strong>${escapeHtml(summary.defaultCount ?? 0)}</strong></div>
           </div>
           <div class="${data.ok ? "preview-ok" : "preview-bad"}">${data.ok ? "✓ 配置校验通过" : "✕ 配置存在问题"}</div>
-          <div class="hint">Primary：${escapeHtml(summary.primary || "未设置")} · 存在：${summary.primaryExists ? "是" : "否"} · 在默认列表：${summary.primaryInDefaults ? "是" : "否"}</div>
+          <div class="hint">Primary：${escapeHtml(summary.primary || "未设置")} · 存在：${summary.primaryExists ? "是" : "否"} · 在默认列表：${summary.primaryInDefaults ? "是" : "否"}${summary.primaryIgnoredByOAuth ? " · OAuth 鉴权已跳过强校验" : ""}</div>
+          ${summary.ignoredOAuthProviders?.length ? `<div class="glass-note" style="margin-top:10px">OAuth Provider 已跳过普通模型强校验：${summary.ignoredOAuthProviders.map(escapeHtml).join(", ")}</div>` : ""}
           ${errors.length ? `<ul class="preview-list">${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join("")}</ul>` : ""}
           ${summary.missingDefaults?.length ? `<div class="glass-note" style="margin-top:10px">缺失默认模型：${summary.missingDefaults.map(escapeHtml).join(", ")}</div>` : ""}
           <label>将要保存的 managed 配置预览</label>

@@ -5,6 +5,14 @@ export interface ValidationResult {
   errors: string[];
 }
 
+export interface ValidationOptions {
+  ignoredProviderIds?: Iterable<string>;
+}
+
+function ignoredProviderSet(options?: ValidationOptions): Set<string> {
+  return new Set(options?.ignoredProviderIds ?? []);
+}
+
 export function parseModelRef(modelRef: string): { providerId: string; modelId: string } | null {
   const parts = modelRef.split("/");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
@@ -29,12 +37,21 @@ export function modelExists(providers: ProvidersConfig, modelRef: string): boole
   return provider.models.some((model) => model.id === parsed.modelId);
 }
 
-export function validateDefaultModels(providers: ProvidersConfig, defaults: DefaultModels): ValidationResult {
+export function validateDefaultModels(
+  providers: ProvidersConfig,
+  defaults: DefaultModels,
+  options?: ValidationOptions
+): ValidationResult {
   const errors: string[] = [];
+  const ignoredProviders = ignoredProviderSet(options);
   for (const modelRef of Object.keys(defaults)) {
     const parsed = parseModelRef(modelRef);
     if (!parsed) {
       errors.push(`默认模型引用格式非法: ${modelRef}`);
+      continue;
+    }
+
+    if (ignoredProviders.has(parsed.providerId)) {
       continue;
     }
 
@@ -49,13 +66,19 @@ export function validateDefaultModels(providers: ProvidersConfig, defaults: Defa
 export function validatePrimaryModel(
   providers: ProvidersConfig,
   defaults: DefaultModels,
-  primary: string
+  primary: string,
+  options?: ValidationOptions
 ): ValidationResult {
   const errors: string[] = [];
   const parsed = parseModelRef(primary);
   if (!parsed) {
     errors.push(`主模型引用格式非法: ${primary}`);
     return { ok: false, errors };
+  }
+
+  const ignoredProviders = ignoredProviderSet(options);
+  if (ignoredProviders.has(parsed.providerId)) {
+    return { ok: true, errors };
   }
 
   if (!modelExists(providers, primary)) {
@@ -72,7 +95,8 @@ export function validatePrimaryModel(
 export function validateBeforeSave(
   providers: ProvidersConfig,
   defaults: DefaultModels,
-  primary: string
+  primary: string,
+  options?: ValidationOptions
 ): ValidationResult {
   const providerValidation = providersSchema.safeParse(providers);
   const errors: string[] = [];
@@ -83,8 +107,8 @@ export function validateBeforeSave(
     }
   }
 
-  errors.push(...validateDefaultModels(providers, defaults).errors);
-  errors.push(...validatePrimaryModel(providers, defaults, primary).errors);
+  errors.push(...validateDefaultModels(providers, defaults, options).errors);
+  errors.push(...validatePrimaryModel(providers, defaults, primary, options).errors);
 
   return { ok: errors.length === 0, errors };
 }

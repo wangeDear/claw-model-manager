@@ -15,6 +15,18 @@ export interface ManagedConfigSlice {
   primary: string;
 }
 
+
+export function getOAuthProviderIds(config: OpenClawConfig): string[] {
+  const profiles = config.auth?.profiles ?? {};
+  return Array.from(
+    new Set(
+      Object.values(profiles)
+        .filter((profile) => profile?.mode === "oauth" && typeof profile.provider === "string")
+        .map((profile) => profile.provider as string)
+    )
+  );
+}
+
 export function extractManagedConfigSlice(config: OpenClawConfig): ManagedConfigSlice {
   return {
     providers: (config.models?.providers ?? {}) as ProvidersConfig,
@@ -38,7 +50,9 @@ export async function updateManagedConfig(
   path = DEFAULT_CONFIG_PATH
 ): Promise<{ config: OpenClawConfig; validation: ValidationResult }> {
   const original = await readOpenClawConfig(path);
-  const validation = validateBeforeSave(nextSlice.providers, nextSlice.defaultModels, nextSlice.primary);
+  const validation = validateBeforeSave(nextSlice.providers, nextSlice.defaultModels, nextSlice.primary, {
+    ignoredProviderIds: getOAuthProviderIds(original)
+  });
 
   if (!validation.ok) {
     return { config: original, validation };

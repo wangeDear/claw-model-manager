@@ -6,10 +6,11 @@ import {
   DEFAULT_CONFIG_PATH,
   extractManagedConfigSlice,
   readOpenClawConfig,
-  updateManagedConfig
+  updateManagedConfig,
+  getOAuthProviderIds
 } from "./file-store.js";
 
-import { validateBeforeSave } from "./config-manager.js";
+import { parseModelRef, validateBeforeSave } from "./config-manager.js";
 import type { DefaultModels, ProvidersConfig } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -68,11 +69,20 @@ async function handler(req: IncomingMessage, res: ServerResponse): Promise<void>
 
     if (req.method === "POST" && req.url === "/api/preview") {
       const payload = await readJsonBody<SavePayload>(req);
-      const validation = validateBeforeSave(payload.providers, payload.defaultModels, payload.primary);
+      const config = await readOpenClawConfig(payload.path ?? DEFAULT_CONFIG_PATH);
+      const ignoredOAuthProviders = getOAuthProviderIds(config);
+      const ignoredOAuthProviderSet = new Set(ignoredOAuthProviders);
+      const validation = validateBeforeSave(payload.providers, payload.defaultModels, payload.primary, {
+        ignoredProviderIds: ignoredOAuthProviders
+      });
       const providerEntries = Object.entries(payload.providers);
       const modelRefs = providerEntries.flatMap(([providerId, provider]) =>
         provider.models.map((model) => `${providerId}/${model.id}`)
       );
+      const isIgnoredOAuthRef = (modelRef: string): boolean => {
+        const parsed = parseModelRef(modelRef);
+        return Boolean(parsed && ignoredOAuthProviderSet.has(parsed.providerId));
+      };
       json(res, 200, {
         ok: validation.ok,
         errors: validation.errors,
@@ -81,9 +91,13 @@ async function handler(req: IncomingMessage, res: ServerResponse): Promise<void>
           modelCount: modelRefs.length,
           defaultCount: Object.keys(payload.defaultModels).length,
           primary: payload.primary,
-          primaryExists: modelRefs.includes(payload.primary),
-          primaryInDefaults: Boolean(payload.defaultModels[payload.primary]),
-          missingDefaults: Object.keys(payload.defaultModels).filter((modelRef) => !modelRefs.includes(modelRef))
+          ignoredOAuthProviders,
+          primaryIgnoredByOAuth: isIgnoredOAuthRef(payload.primary),
+          primaryExists: modelRefs.includes(payload.primary) || isIgnoredOAuthRef(payload.primary),
+          primaryInDefaults: Boolean(payload.defaultModels[payload.primary]) || isIgnoredOAuthRef(payload.primary),
+          missingDefaults: Object.keys(payload.defaultModels).filter(
+            (modelRef) => !modelRefs.includes(modelRef) && !isIgnoredOAuthRef(modelRef)
+          )
         },
         managed: {
           providers: payload.providers,

@@ -70,7 +70,18 @@ export type ProvidersConfig = z.infer<typeof providersSchema>;
 
 export type DefaultModels = Record<string, Record<string, never>>;
 
+export interface AuthProfile {
+  provider?: string;
+  mode?: string;
+  email?: string;
+  [key: string]: unknown;
+}
+
 export interface OpenClawConfig {
+  auth?: {
+    profiles?: Record<string, AuthProfile>;
+    [key: string]: unknown;
+  };
   models?: {
     providers?: ProvidersConfig;
     [key: string]: unknown;
