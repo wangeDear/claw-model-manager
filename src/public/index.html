@@ -173,15 +173,18 @@
       .preview-json { max-height: 220px; min-height: 120px; margin-top: 10px; }
 
       .modal.preview-modal { width: min(1380px, calc(100vw - 36px)); max-height: calc(100vh - 36px); }
-      .modal.preview-modal .modal-body { padding: 0; overflow: hidden; }
+      .modal.preview-modal .modal-body { padding: 0; overflow: hidden; min-height: 0; }
       .modal.preview-modal .modal-actions { display: none; }
-      .preview-stage { height: min(76vh, 860px); display: grid; grid-template-columns: 380px 1fr; min-height: 0; }
+      .preview-stage { height: min(76vh, 860px); display: grid; grid-template-columns: 380px minmax(0, 1fr); min-height: 0; overflow: hidden; }
       .preview-aside { padding: 20px; border-right: 1px solid var(--line); overflow: auto; background: rgba(7,10,19,.22); }
-      .preview-code-wrap { min-width: 0; display: flex; flex-direction: column; background: #060914; }
+      .preview-code-wrap { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #060914; }
       .preview-code-head { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .preview-code-title { color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
       .preview-copy { width: auto; padding: 7px 10px; font-size: 12px; }
+      .preview-apply { width: auto; padding: 7px 10px; font-size: 12px; color: #03101b; background: linear-gradient(135deg, var(--brand), var(--brand-2)); font-weight: 800; }
       .code-render { margin: 0; flex: 1; overflow: auto; padding: 20px 24px; color: #dbeafe; background: radial-gradient(circle at top left, rgba(124,255,224,.06), transparent 34%), #050816; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.65; tab-size: 2; }
+      .preview-json-editor { flex: 1; min-height: 0; resize: none; margin: 0; border: 0; border-radius: 0; padding: 20px 24px; color: #dbeafe; background: radial-gradient(circle at top left, rgba(124,255,224,.06), transparent 34%), #050816; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.65; tab-size: 2; white-space: pre; overflow: auto; }
+      .preview-json-editor:focus { box-shadow: inset 0 0 0 1px rgba(124,255,224,.34); }
       .code-render .key { color: #7dd3fc; }
       .code-render .string { color: #86efac; }
       .code-render .number { color: #fbbf24; }
@@ -538,7 +541,7 @@
           description: "保存前的大屏审阅视图。左侧是校验结论，右侧是将要写入的 managed 配置代码。",
           submitText: "关闭",
           variant: "preview-modal",
-          body: `<div class="preview-stage"><aside class="preview-aside">${summaryHtml}</aside><section class="preview-code-wrap"><div class="preview-code-head"><span class="preview-code-title">managed.config.json</span><button class="preview-copy" type="button" onclick="copyPreviewJson()">复制代码</button></div><pre class="code-render"><code>${highlightJson(jsonText)}</code></pre></section></div>`,
+          body: `<div class="preview-stage"><aside class="preview-aside">${summaryHtml}</aside><section class="preview-code-wrap"><div class="preview-code-head"><span class="preview-code-title">managed.config.json（可编辑）</span><div style="display:flex;gap:8px"><button class="preview-copy" type="button" onclick="copyPreviewJson()">复制代码</button><button class="preview-apply" type="button" onclick="applyPreviewJson()">应用 JSON</button></div></div><textarea id="previewJsonEditor" class="preview-json-editor" spellcheck="false">${escapeHtml(jsonText)}</textarea></section></div>`,
           onSubmit: () => modal.close()
         });
         window.__previewJson = jsonText;
@@ -555,10 +558,33 @@
 
       async function copyPreviewJson() {
         try {
-          await navigator.clipboard.writeText(window.__previewJson || "");
+          const text = document.getElementById("previewJsonEditor")?.value || window.__previewJson || "";
+          await navigator.clipboard.writeText(text);
           status("预览 JSON 已复制");
         } catch {
           status("复制失败，请手动选择代码", false);
+        }
+      }
+
+      function applyPreviewJson() {
+        try {
+          const text = document.getElementById("previewJsonEditor")?.value || "";
+          const managed = JSON.parse(text);
+          if (!managed || typeof managed !== "object") throw new Error("JSON 根节点必须是对象");
+          if (!managed.providers || typeof managed.providers !== "object") throw new Error("缺少 providers 对象");
+          if (!managed.defaultModels || typeof managed.defaultModels !== "object") throw new Error("缺少 defaultModels 对象");
+          if (typeof managed.primary !== "string") throw new Error("primary 必须是字符串");
+          state.providers = managed.providers;
+          state.defaults = managed.defaultModels;
+          state.primary = managed.primary;
+          state.providerId = Object.keys(state.providers)[0] || "";
+          state.modelId = state.providerId ? (state.providers[state.providerId].models?.[0]?.id || "") : "";
+          window.__previewJson = JSON.stringify(managed, null, 2);
+          renderAll();
+          modal.close();
+          status("JSON 已应用到编辑状态；请再次预览或保存配置");
+        } catch (e) {
+          status(`JSON 应用失败: ${e.message}`, false);
         }
       }
 
