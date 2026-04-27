@@ -148,6 +148,10 @@
       @media (max-width: 720px) { .quick-actions { grid-template-columns: 1fr; } }
       .hint { color: var(--muted); font-size: 12px; line-height: 1.55; }
       .glass-note { padding: 12px; border: 1px solid rgba(251,191,36,.28); border-radius: 16px; color: #fde68a; background: rgba(251,191,36,.07); font-size: 12px; line-height: 1.55; }
+      .dirty-note { display: none; margin-bottom: 14px; padding: 10px 12px; border: 1px solid rgba(251,191,36,.38); border-radius: 14px; color: #fcd34d; background: linear-gradient(135deg, rgba(251,191,36,.14), rgba(249,115,22,.08)); font-size: 12px; font-weight: 800; }
+      .dirty-note.show { display: block; }
+      .apply-row { display: flex; justify-content: flex-end; margin-top: 14px; }
+      .apply-row button { min-width: 132px; }
       .provider-label { color: var(--brand); }
 
       .modal-backdrop { position: fixed; inset: 0; display: none; place-items: center; padding: 24px; background: rgba(2, 6, 23, .66); backdrop-filter: blur(18px); z-index: 30; }
@@ -269,14 +273,17 @@
           </div>
           <div class="panel-body">
             <div class="glass-note">API Key 默认脱敏展示。只有当你主动输入非脱敏的新值时，才会覆盖原密钥。</div>
+            <div id="dirtyNote" class="dirty-note">有未应用的修改</div>
 
             <div class="section">
               <h3>Provider</h3>
+              <label>Provider ID</label><input id="providerIdInput" placeholder="provider-id" />
               <label>baseUrl</label><input id="providerBaseUrl" placeholder="https://api.example.com/v1" />
               <label>api</label><input id="providerApi" placeholder="openai-completions" />
               <label>apiKey</label><input id="providerApiKey" placeholder="保持脱敏值则不修改" />
               <label>authHeader</label>
               <select id="providerAuthHeader"><option value="">(未设置)</option><option value="true">true</option><option value="false">false</option></select>
+              <div class="apply-row"><button id="applyProviderBtn" type="button" class="primary">应用修改</button></div>
             </div>
 
             <div class="section">
@@ -291,6 +298,7 @@
               <select id="reasoning"><option value="">(未设置)</option><option value="true">true</option><option value="false">false</option></select>
               <label>input（逗号分隔）</label><input id="modelInput" placeholder="text,image" />
               <label>cost JSON（可选）</label><textarea id="modelCost" placeholder='{"input":0,"output":0}'></textarea>
+              <div class="apply-row"><button id="applyModelBtn" type="button" class="primary">应用修改</button></div>
             </div>
 
 
@@ -340,7 +348,7 @@
 
 
     <script>
-      const state = { providers: {}, defaults: {}, primary: "", providerId: "", modelId: "" };
+      const state = { providers: {}, defaults: {}, primary: "", providerId: "", modelId: "", dirtyProvider: false, dirtyModel: false, dirtyPolicy: false };
       const el = (id) => document.getElementById(id);
       const status = (text, ok = true) => {
         const node = el("status");
@@ -353,6 +361,46 @@
       const providerEntries = () => Object.entries(state.providers || {});
       const totalModels = () => providerEntries().reduce((sum, [, provider]) => sum + (provider.models || []).length, 0);
       const defaultKeys = () => Object.keys(state.defaults || {});
+      let renderingEditor = false;
+      const hasDirtyEditor = () => state.dirtyProvider || state.dirtyModel || state.dirtyPolicy;
+      function setDirty(part) {
+        if (renderingEditor) return;
+        if (part === "provider") state.dirtyProvider = true;
+        if (part === "model") state.dirtyModel = true;
+        if (part === "policy") state.dirtyPolicy = true;
+        renderDirtyNote();
+      }
+      function renderDirtyNote() {
+        const node = el("dirtyNote");
+        if (!node) return;
+        node.classList.toggle("show", hasDirtyEditor());
+      }
+      function replaceRef(ref, oldProviderId, oldModelId, newProviderId, newModelId) {
+        if (!ref) return ref;
+        const oldRef = modelRef(oldProviderId, oldModelId);
+        if (ref === oldRef) return modelRef(newProviderId, newModelId);
+        if (oldProviderId !== newProviderId && ref.startsWith(`${oldProviderId}/`)) return `${newProviderId}/${ref.slice(oldProviderId.length + 1)}`;
+        return ref;
+      }
+      function updateModelRefs(oldProviderId, oldModelId, newProviderId, newModelId) {
+        const next = {};
+        for (const [ref, value] of Object.entries(state.defaults || {})) {
+          next[replaceRef(ref, oldProviderId, oldModelId, newProviderId, newModelId)] = value;
+        }
+        state.defaults = next;
+        state.primary = replaceRef(state.primary, oldProviderId, oldModelId, newProviderId, newModelId) || "";
+      }
+      function applyPolicyEditorToState() {
+        state.defaults = JSON.parse(el("defaultModels").value || "{}");
+        state.primary = el("primaryModel").value.trim();
+        state.dirtyPolicy = false;
+      }
+      function requireAppliedEditor() {
+        if (!hasDirtyEditor()) return true;
+        status("有未应用的修改，请先点击对应区域的「应用修改」", false);
+        renderDirtyNote();
+        return false;
+      }
 
       function renderMetrics() {
         el("providerCount").textContent = providerEntries().length;
@@ -375,6 +423,7 @@
           const count = provider.models?.length || 0;
           li.innerHTML = `<div class="item-main"><span class="item-title">${escapeHtml(providerId)}</span><span class="badge">${count} models</span></div><div class="item-meta">${escapeHtml(provider.api || "api 未设置")} · ${escapeHtml(provider.baseUrl || "baseUrl 未设置")}</div>`;
           li.onclick = () => {
+            if (hasDirtyEditor()) return status("有未应用的修改，请先应用后再切换 Provider", false);
             state.providerId = providerId;
             state.modelId = state.providers[providerId].models?.[0]?.id || "";
             renderAll();
@@ -398,13 +447,19 @@
           li.className = `item ${model.id === state.modelId ? "active" : ""}`;
           const badges = [state.primary === ref ? `<span class="badge primary">Primary</span>` : "", state.defaults[ref] ? `<span class="badge default">Default</span>` : ""].join("");
           li.innerHTML = `<div class="item-main"><span class="item-title">${escapeHtml(model.id)}</span><span>${badges}</span></div><div class="item-meta">${escapeHtml(model.name || "未命名")} · ctx ${escapeHtml(model.contextWindow || "-")} · max ${escapeHtml(model.maxTokens || "-")}</div>`;
-          li.onclick = () => { state.modelId = model.id; renderAll(); };
+          li.onclick = () => {
+            if (hasDirtyEditor()) return status("有未应用的修改，请先应用后再切换 Model", false);
+            state.modelId = model.id;
+            renderAll();
+          };
           list.appendChild(li);
         }
       }
 
       function renderEditor() {
+        renderingEditor = true;
         const provider = state.providers[state.providerId] || {};
+        el("providerIdInput").value = state.providerId || "";
         el("providerBaseUrl").value = provider.baseUrl || "";
         el("providerApi").value = provider.api || "";
         el("providerApiKey").value = mask(provider.apiKey || "");
@@ -419,6 +474,8 @@
         el("modelCost").value = model.cost ? JSON.stringify(model.cost, null, 2) : "";
         el("defaultModels").value = JSON.stringify(state.defaults, null, 2);
         el("primaryModel").value = state.primary || "";
+        renderingEditor = false;
+        renderDirtyNote();
       }
 
       function renderAll() { renderMetrics(); renderProviders(); renderModels(); renderEditor(); }
@@ -435,6 +492,7 @@
           state.primary = data.managed.primary || "";
           state.providerId = Object.keys(state.providers)[0] || "";
           state.modelId = state.providerId ? (state.providers[state.providerId].models?.[0]?.id || "") : "";
+          state.dirtyProvider = state.dirtyModel = state.dirtyPolicy = false;
           renderAll();
           status("配置已同步");
         } catch (e) { status(`加载失败: ${e.message}`, false); }
@@ -445,9 +503,14 @@
         if (!state.providers[state.providerId]) state.providers[state.providerId] = { models: [] };
       }
 
-      function applyEditorToState() {
+      function applyProviderEditorToState() {
         ensureProvider();
-        const provider = state.providers[state.providerId];
+        const oldProviderId = state.providerId;
+        const nextProviderId = el("providerIdInput").value.trim();
+        if (!nextProviderId) throw new Error("Provider ID 不能为空");
+        if (nextProviderId !== oldProviderId && state.providers[nextProviderId]) throw new Error(`Provider ${nextProviderId} 已存在`);
+        applyPolicyEditorToState();
+        const provider = state.providers[oldProviderId];
         provider.baseUrl = el("providerBaseUrl").value.trim() || undefined;
         provider.api = el("providerApi").value.trim() || undefined;
         const apiKey = el("providerApiKey").value.trim();
@@ -455,33 +518,58 @@
         const authHeader = el("providerAuthHeader").value;
         provider.authHeader = authHeader === "" ? undefined : authHeader === "true";
         provider.models = provider.models || [];
+        if (nextProviderId !== oldProviderId) {
+          delete state.providers[oldProviderId];
+          state.providers[nextProviderId] = provider;
+          const currentModels = provider.models || [];
+          for (const model of currentModels) updateModelRefs(oldProviderId, model.id, nextProviderId, model.id);
+          state.providerId = nextProviderId;
+        }
+        state.dirtyProvider = false;
+        renderAll();
+        status("Provider 已更新，记得保存配置");
+      }
 
+      function applyModelEditorToState() {
+        ensureProvider();
+        const provider = state.providers[state.providerId];
+        provider.models = provider.models || [];
         const previousModelId = state.modelId;
         const modelId = el("modelId").value.trim();
-        if (modelId) {
-          let model = provider.models.find((m) => m.id === previousModelId);
-          if (!model) {
-            model = { id: modelId, name: "", input: ["text"], contextWindow: 1, maxTokens: 1 };
-            provider.models.push(model);
-          }
-          model.id = modelId;
-          model.name = el("modelName").value.trim() || modelId;
-          model.input = el("modelInput").value.split(",").map((s) => s.trim()).filter(Boolean);
-          model.contextWindow = Number(el("contextWindow").value || 0);
-          model.maxTokens = Number(el("maxTokens").value || 0);
-          const reasoning = el("reasoning").value;
-          model.reasoning = reasoning === "" ? undefined : reasoning === "true";
-          const costText = el("modelCost").value.trim();
-          model.cost = costText ? JSON.parse(costText) : undefined;
-          state.modelId = model.id;
+        if (!modelId) throw new Error("Model ID 不能为空");
+        const duplicate = provider.models.find((m) => m.id === modelId && m.id !== previousModelId);
+        if (duplicate) throw new Error(`Model ${modelId} 已存在`);
+        applyPolicyEditorToState();
+        let model = provider.models.find((m) => m.id === previousModelId);
+        if (!model) {
+          model = { id: modelId, name: "", input: ["text"], contextWindow: 1, maxTokens: 1 };
+          provider.models.push(model);
         }
-        state.defaults = JSON.parse(el("defaultModels").value || "{}");
-        state.primary = el("primaryModel").value.trim();
+        if (previousModelId && previousModelId !== modelId) updateModelRefs(state.providerId, previousModelId, state.providerId, modelId);
+        model.id = modelId;
+        model.name = el("modelName").value.trim() || modelId;
+        model.input = el("modelInput").value.split(",").map((s) => s.trim()).filter(Boolean);
+        model.contextWindow = Number(el("contextWindow").value || 0);
+        model.maxTokens = Number(el("maxTokens").value || 0);
+        const reasoning = el("reasoning").value;
+        model.reasoning = reasoning === "" ? undefined : reasoning === "true";
+        const costText = el("modelCost").value.trim();
+        model.cost = costText ? JSON.parse(costText) : undefined;
+        state.modelId = model.id;
+        state.dirtyModel = false;
+        renderAll();
+        status("Model 已更新，记得保存配置");
+      }
+
+      function applyEditorToState() {
+        if (state.dirtyProvider) applyProviderEditorToState();
+        if (state.dirtyModel) applyModelEditorToState();
+        if (state.dirtyPolicy) applyPolicyEditorToState();
       }
 
       async function saveConfig() {
         try {
-          applyEditorToState();
+          if (!requireAppliedEditor()) return;
           status("保存中…");
           const res = await fetch("/api/config", {
             method: "PUT",
@@ -499,7 +587,7 @@
 
       async function previewConfig() {
         try {
-          applyEditorToState();
+          if (!requireAppliedEditor()) return;
           status("校验中…");
           const res = await fetch("/api/preview", {
             method: "POST",
@@ -579,6 +667,7 @@
           state.primary = managed.primary;
           state.providerId = Object.keys(state.providers)[0] || "";
           state.modelId = state.providerId ? (state.providers[state.providerId].models?.[0]?.id || "") : "";
+          state.dirtyProvider = state.dirtyModel = state.dirtyPolicy = false;
           window.__previewJson = JSON.stringify(managed, null, 2);
           renderAll();
           modal.close();
@@ -622,6 +711,17 @@
         status(`${ref} 已设为 Primary，并自动加入 Default，记得保存配置`);
       }
 
+      function watchDirty(ids, part) {
+        ids.forEach((id) => {
+          el(id).addEventListener("input", () => setDirty(part));
+          el(id).addEventListener("change", () => setDirty(part));
+        });
+      }
+      watchDirty(["providerIdInput", "providerBaseUrl", "providerApi", "providerApiKey", "providerAuthHeader"], "provider");
+      watchDirty(["modelId", "modelName", "contextWindow", "maxTokens", "reasoning", "modelInput", "modelCost"], "model");
+      watchDirty(["defaultModels", "primaryModel"], "policy");
+      el("applyProviderBtn").onclick = () => { try { applyProviderEditorToState(); } catch (e) { status(`Provider 应用失败: ${e.message}`, false); } };
+      el("applyModelBtn").onclick = () => { try { applyModelEditorToState(); } catch (e) { status(`Model 应用失败: ${e.message}`, false); } };
       el("reloadBtn").onclick = loadConfig;
       el("previewBtn").onclick = previewConfig;
       el("saveBtn").onclick = saveConfig;
