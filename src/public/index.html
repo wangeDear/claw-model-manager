@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClawModel Manager</title>
+    <style>
+      :root { font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif; }
+      body { margin: 0; background: #0b1020; color: #e7ecff; }
+      .layout { display: grid; grid-template-columns: 260px 1fr 1fr; gap: 12px; height: 100vh; padding: 12px; box-sizing: border-box; }
+      .panel { background: #141a31; border: 1px solid #2b3666; border-radius: 10px; padding: 10px; overflow: auto; }
+      h2,h3 { margin: 8px 0; }
+      ul { list-style: none; padding: 0; margin: 0; }
+      li { padding: 8px; border: 1px solid #2b3666; border-radius: 8px; margin-bottom: 8px; cursor: pointer; }
+      li.active { border-color: #7ca0ff; background: #1f2a52; }
+      input, select, textarea, button { width: 100%; box-sizing: border-box; margin-top: 6px; margin-bottom: 8px; border-radius: 8px; border: 1px solid #3b4a88; background: #0f1530; color: #e7ecff; padding: 8px; }
+      textarea { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .btn-row { display: flex; gap: 8px; }
+      .btn-row button { width: auto; }
+      .hint { color: #95a2d6; font-size: 12px; }
+      .ok { color: #7fffb2; }
+      .err { color: #ff8f95; white-space: pre-wrap; }
+      .top-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+      .top-actions button { width: auto; }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <section class="panel">
+        <h2>Providers</h2>
+        <div class="top-actions">
+          <button id="reloadBtn">重新加载</button>
+          <button id="addProviderBtn">新增 Provider</button>
+        </div>
+        <ul id="providerList"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Models</h2>
+        <p class="hint">当前 Provider: <span id="currentProvider">-</span></p>
+        <div class="top-actions">
+          <button id="addModelBtn">新增 Model</button>
+        </div>
+        <ul id="modelList"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>编辑区</h2>
+        <label>配置路径</label>
+        <input id="configPath" value="/root/.openclaw/openclaw.json" />
+
+        <h3>Provider 字段</h3>
+        <label>baseUrl</label><input id="providerBaseUrl" />
+        <label>api</label><input id="providerApi" />
+        <label>apiKey（默认脱敏）</label><input id="providerApiKey" />
+        <label>authHeader</label>
+        <select id="providerAuthHeader"><option value="">(未设置)</option><option value="true">true</option><option value="false">false</option></select>
+
+        <h3>Model 字段</h3>
+        <label>id</label><input id="modelId" />
+        <label>name</label><input id="modelName" />
+        <div class="row">
+          <div><label>contextWindow</label><input id="contextWindow" type="number" /></div>
+          <div><label>maxTokens</label><input id="maxTokens" type="number" /></div>
+        </div>
+        <label>reasoning</label>
+        <select id="reasoning"><option value="">(未设置)</option><option value="true">true</option><option value="false">false</option></select>
+        <label>input（逗号分隔）</label><input id="modelInput" placeholder="text,image" />
+        <label>cost JSON（可选）</label><textarea id="modelCost"></textarea>
+
+        <h3>默认模型与主模型</h3>
+        <label>默认可用模型 refs (JSON Object)</label>
+        <textarea id="defaultModels"></textarea>
+        <label>primary</label>
+        <input id="primaryModel" placeholder="providerId/modelId" />
+
+        <div class="btn-row">
+          <button id="saveBtn">保存</button>
+          <button id="deleteModelBtn">删除当前 Model</button>
+          <button id="deleteProviderBtn">删除当前 Provider</button>
+        </div>
+
+        <div id="status" class="hint">就绪</div>
+      </section>
+    </div>
+
+    <script>
+      const state = { providers: {}, defaults: {}, primary: "", providerId: "", modelId: "" };
+
+      const el = (id) => document.getElementById(id);
+      const status = (text, ok = true) => {
+        const node = el("status");
+        node.className = ok ? "ok" : "err";
+        node.textContent = text;
+      };
+
+      const mask = (key) => (!key ? "" : key.length <= 8 ? "*".repeat(key.length) : `${key.slice(0,4)}${"*".repeat(key.length-8)}${key.slice(-4)}`);
+
+      function renderProviders() {
+        const list = el("providerList");
+        list.innerHTML = "";
+        for (const providerId of Object.keys(state.providers)) {
+          const li = document.createElement("li");
+          li.className = providerId === state.providerId ? "active" : "";
+          li.textContent = providerId;
+          li.onclick = () => {
+            state.providerId = providerId;
+            state.modelId = state.providers[providerId].models?.[0]?.id || "";
+            renderAll();
+          };
+          list.appendChild(li);
+        }
+      }
+
+      function renderModels() {
+        const list = el("modelList");
+        list.innerHTML = "";
+        const provider = state.providers[state.providerId];
+        el("currentProvider").textContent = state.providerId || "-";
+        if (!provider) return;
+        for (const model of provider.models || []) {
+          const ref = `${state.providerId}/${model.id}`;
+          const li = document.createElement("li");
+          li.className = model.id === state.modelId ? "active" : "";
+          li.textContent = `${ref} | ${model.name}${state.primary === ref ? " [PRIMARY]" : ""}${state.defaults[ref] ? " [DEFAULT]" : ""}`;
+          li.onclick = () => { state.modelId = model.id; renderAll(); };
+          list.appendChild(li);
+        }
+      }
+
+      function renderEditor() {
+        const provider = state.providers[state.providerId] || {};
+        el("providerBaseUrl").value = provider.baseUrl || "";
+        el("providerApi").value = provider.api || "";
+        el("providerApiKey").value = mask(provider.apiKey || "");
+        el("providerAuthHeader").value = provider.authHeader === undefined ? "" : String(provider.authHeader);
+
+        const model = (provider.models || []).find((m) => m.id === state.modelId) || {};
+        el("modelId").value = model.id || "";
+        el("modelName").value = model.name || "";
+        el("contextWindow").value = model.contextWindow || "";
+        el("maxTokens").value = model.maxTokens || "";
+        el("reasoning").value = model.reasoning === undefined ? "" : String(model.reasoning);
+        el("modelInput").value = (model.input || []).join(",");
+        el("modelCost").value = model.cost ? JSON.stringify(model.cost, null, 2) : "";
+
+        el("defaultModels").value = JSON.stringify(state.defaults, null, 2);
+        el("primaryModel").value = state.primary || "";
+      }
+
+      function renderAll() { renderProviders(); renderModels(); renderEditor(); }
+
+      async function loadConfig() {
+        try {
+          const path = encodeURIComponent(el("configPath").value.trim());
+          const res = await fetch(`/api/config?path=${path}`);
+          const data = await res.json();
+          state.providers = data.managed.providers || {};
+          state.defaults = data.managed.defaultModels || {};
+          state.primary = data.managed.primary || "";
+          state.providerId = Object.keys(state.providers)[0] || "";
+          state.modelId = state.providerId ? (state.providers[state.providerId].models?.[0]?.id || "") : "";
+          renderAll();
+          status("配置加载成功");
+        } catch (e) {
+          status(`加载失败: ${e.message}`, false);
+        }
+      }
+
+      function ensureProvider() {
+        if (!state.providers[state.providerId]) {
+          state.providers[state.providerId] = { models: [] };
+        }
+      }
+
+      function applyEditorToState() {
+        ensureProvider();
+        const provider = state.providers[state.providerId];
+        provider.baseUrl = el("providerBaseUrl").value.trim() || undefined;
+        provider.api = el("providerApi").value.trim() || undefined;
+        const authHeader = el("providerAuthHeader").value;
+        provider.authHeader = authHeader === "" ? undefined : authHeader === "true";
+
+        const modelId = el("modelId").value.trim();
+        if (modelId) {
+          let model = provider.models.find((m) => m.id === state.modelId);
+          if (!model) {
+            model = { id: modelId, name: "", input: ["text"], contextWindow: 1, maxTokens: 1 };
+            provider.models.push(model);
+          }
+
+          model.id = modelId;
+          model.name = el("modelName").value.trim();
+          model.input = el("modelInput").value.split(",").map((s) => s.trim()).filter(Boolean);
+          model.contextWindow = Number(el("contextWindow").value);
+          model.maxTokens = Number(el("maxTokens").value);
+          const reasoning = el("reasoning").value;
+          model.reasoning = reasoning === "" ? undefined : reasoning === "true";
+          const costText = el("modelCost").value.trim();
+          model.cost = costText ? JSON.parse(costText) : undefined;
+          state.modelId = model.id;
+        }
+
+        state.defaults = JSON.parse(el("defaultModels").value || "{}");
+        state.primary = el("primaryModel").value.trim();
+      }
+
+      async function saveConfig() {
+        try {
+          applyEditorToState();
+          const res = await fetch("/api/config", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              path: el("configPath").value.trim(),
+              providers: state.providers,
+              defaultModels: state.defaults,
+              primary: state.primary
+            })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            status(`保存失败:\n${(data.errors || [data.error]).join("\n")}`, false);
+            return;
+          }
+          status("保存成功");
+          await loadConfig();
+        } catch (e) {
+          status(`保存异常: ${e.message}`, false);
+        }
+      }
+
+      el("reloadBtn").onclick = loadConfig;
+      el("saveBtn").onclick = saveConfig;
+
+      el("addProviderBtn").onclick = () => {
+        const providerId = prompt("输入 providerId");
+        if (!providerId) return;
+        state.providers[providerId] = { models: [] };
+        state.providerId = providerId;
+        state.modelId = "";
+        renderAll();
+      };
+
+      el("addModelBtn").onclick = () => {
+        if (!state.providerId) return status("请先选择 Provider", false);
+        const modelId = prompt("输入 modelId");
+        if (!modelId) return;
+        const provider = state.providers[state.providerId];
+        provider.models.push({ id: modelId, name: modelId, input: ["text"], contextWindow: 128000, maxTokens: 8192 });
+        state.modelId = modelId;
+        renderAll();
+      };
+
+      el("deleteModelBtn").onclick = () => {
+        if (!state.providerId || !state.modelId) return;
+        const provider = state.providers[state.providerId];
+        provider.models = provider.models.filter((m) => m.id !== state.modelId);
+        state.modelId = provider.models[0]?.id || "";
+        renderAll();
+      };
+
+      el("deleteProviderBtn").onclick = () => {
+        if (!state.providerId) return;
+        delete state.providers[state.providerId];
+        state.providerId = Object.keys(state.providers)[0] || "";
+        state.modelId = state.providerId ? state.providers[state.providerId].models?.[0]?.id || "" : "";
+        renderAll();
+      };
+
+      loadConfig();
+    </script>
+  </body>
+</html>

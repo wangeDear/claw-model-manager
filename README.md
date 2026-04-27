@@ -15,6 +15,7 @@
 - 删除 Provider/Model 的引用保护校验
 - 仅替换允许路径的保存函数 `saveModelAccessConfig`
 - 后端读取/写入默认配置文件 `/root/.openclaw/openclaw.json`
+- 内置 Web 界面（`GET /`）可直接编辑并保存配置
 - 提供 HTTP API：
   - `GET /api/config` 读取配置（可选 query `path` 覆盖默认路径）
   - `PUT /api/config` 保存三段受控配置
@@ -26,6 +27,10 @@ npm install
 npm run build
 npm run start:backend
 ```
+
+启动后访问：
+
+- `http://127.0.0.1:3760/` Web 编辑页面
 
 开发模式：
 

@@ -1,4 +1,7 @@
+import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   DEFAULT_CONFIG_PATH,
   extractManagedConfigSlice,
@@ -7,6 +10,10 @@ import {
 } from "./file-store.js";
 
 import type { DefaultModels, ProvidersConfig } from "./types.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const WEB_UI_PATH = join(__dirname, "public", "index.html");
 
 interface SavePayload {
   providers: ProvidersConfig;
@@ -34,8 +41,19 @@ function json(res: ServerResponse, statusCode: number, data: unknown): void {
   res.end(JSON.stringify(data));
 }
 
+async function serveWebUi(res: ServerResponse): Promise<void> {
+  const html = await readFile(WEB_UI_PATH, "utf8");
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
 async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
+    if (req.method === "GET" && req.url === "/") {
+      await serveWebUi(res);
+      return;
+    }
+
     if (req.method === "GET" && req.url?.startsWith("/api/config")) {
       const configPath = new URL(req.url, "http://localhost").searchParams.get("path") ?? DEFAULT_CONFIG_PATH;
       const config = await readOpenClawConfig(configPath);
