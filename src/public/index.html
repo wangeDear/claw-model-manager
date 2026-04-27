@@ -146,12 +146,26 @@
       .glass-note { padding: 12px; border: 1px solid rgba(251,191,36,.28); border-radius: 16px; color: #fde68a; background: rgba(251,191,36,.07); font-size: 12px; line-height: 1.55; }
       .provider-label { color: var(--brand); }
 
+      .modal-backdrop { position: fixed; inset: 0; display: none; place-items: center; padding: 24px; background: rgba(2, 6, 23, .66); backdrop-filter: blur(18px); z-index: 30; }
+      .modal-backdrop.open { display: grid; }
+      .modal { width: min(760px, 100%); max-height: min(86vh, 820px); overflow: hidden; display: flex; flex-direction: column; border: 1px solid rgba(148,163,184,.24); border-radius: 28px; background: linear-gradient(180deg, rgba(18,28,52,.98), rgba(10,15,30,.98)); box-shadow: 0 34px 120px rgba(0,0,0,.52); }
+      .modal-head { padding: 22px 24px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+      .modal-head h2 { margin: 0; font-size: 22px; letter-spacing: -.03em; }
+      .modal-head p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+      .modal-close { width: 38px; height: 38px; padding: 0; border-radius: 50%; color: var(--muted); font-size: 20px; }
+      .modal-body { padding: 20px 24px; overflow: auto; }
+      .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .modal-full { grid-column: 1 / -1; }
+      .modal-actions { padding: 16px 24px 22px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 10px; }
+      .field-help { color: var(--faint); font-size: 11px; line-height: 1.5; margin-top: -2px; }
+
       @media (max-width: 1180px) {
         body { overflow: auto; }
         .app { height: auto; min-height: 100vh; }
         .shell { grid-template-columns: 1fr; }
         .panel { max-height: none; }
         .hero { align-items: flex-start; flex-direction: column; }
+        .modal-grid { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -258,6 +272,24 @@
         </section>
       </main>
     </div>
+
+    <div id="modalBackdrop" class="modal-backdrop" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-head">
+          <div>
+            <h2 id="modalTitle">新增</h2>
+            <p id="modalDescription">用结构化表单收集参数，避免浏览器原生弹窗。</p>
+          </div>
+          <button id="modalCloseBtn" class="modal-close" type="button" aria-label="关闭">×</button>
+        </div>
+        <div id="modalBody" class="modal-body"></div>
+        <div class="modal-actions">
+          <button id="modalCancelBtn" type="button">取消</button>
+          <button id="modalSubmitBtn" class="primary" type="button">确认添加</button>
+        </div>
+      </div>
+    </div>
+
 
     <script>
       const state = { providers: {}, defaults: {}, primary: "", providerId: "", modelId: "" };
@@ -419,24 +451,131 @@
       el("saveBtn").onclick = saveConfig;
       el("providerSearch").oninput = renderProviders;
       el("modelSearch").oninput = renderModels;
-      el("addProviderBtn").onclick = () => {
-        const providerId = prompt("输入 providerId");
-        if (!providerId) return;
-        state.providers[providerId] = { models: [] };
-        state.providerId = providerId;
-        state.modelId = "";
-        renderAll();
+      const modal = {
+        submit: null,
+        open({ title, description, body, submitText = "确认", onSubmit }) {
+          el("modalTitle").textContent = title;
+          el("modalDescription").textContent = description;
+          el("modalBody").innerHTML = body;
+          el("modalSubmitBtn").textContent = submitText;
+          this.submit = onSubmit;
+          el("modalBackdrop").classList.add("open");
+          el("modalBackdrop").setAttribute("aria-hidden", "false");
+          const first = el("modalBody").querySelector("input,select,textarea");
+          if (first) setTimeout(() => first.focus(), 50);
+        },
+        close() {
+          el("modalBackdrop").classList.remove("open");
+          el("modalBackdrop").setAttribute("aria-hidden", "true");
+          this.submit = null;
+        }
       };
-      el("addModelBtn").onclick = () => {
+
+      function modalValue(id) { return document.getElementById(id)?.value.trim() || ""; }
+      function modalNumber(id, fallback) {
+        const value = Number(modalValue(id));
+        return Number.isFinite(value) && value > 0 ? value : fallback;
+      }
+
+      function openProviderDialog() {
+        modal.open({
+          title: "新增 Provider",
+          description: "一次性填写 Provider ID、Base URL、API 类型、密钥和可选首个模型。创建后仍可在右侧工作台继续精修。",
+          submitText: "创建 Provider",
+          body: `
+            <div class="modal-grid">
+              <div><label>Provider ID *</label><input id="newProviderId" placeholder="例如 openai / vps668" /></div>
+              <div><label>API 类型</label><input id="newProviderApi" placeholder="openai-completions" value="openai-completions" /></div>
+              <div class="modal-full"><label>Base URL *</label><input id="newProviderBaseUrl" placeholder="https://api.example.com/v1" /></div>
+              <div class="modal-full"><label>API Key</label><input id="newProviderApiKey" placeholder="sk-..." type="password" /><div class="field-help">密钥会写入配置；公网访问已由 Basic Auth 保护，但仍建议谨慎操作。</div></div>
+              <div><label>authHeader</label><select id="newProviderAuthHeader"><option value="true">true</option><option value="false">false</option><option value="">未设置</option></select></div>
+              <div><label>首个 Model ID（可选）</label><input id="newProviderModelId" placeholder="gpt-4.1 / claude-sonnet" /></div>
+              <div><label>Model Name</label><input id="newProviderModelName" placeholder="展示名称，可留空" /></div>
+              <div><label>Context Window</label><input id="newProviderContext" type="number" value="128000" /></div>
+              <div><label>Max Tokens</label><input id="newProviderMaxTokens" type="number" value="8192" /></div>
+              <div><label>Input</label><input id="newProviderInput" value="text,image" /></div>
+            </div>
+          `,
+          onSubmit: () => {
+            const providerId = modalValue("newProviderId");
+            const baseUrl = modalValue("newProviderBaseUrl");
+            if (!providerId) return status("Provider ID 不能为空", false);
+            if (!baseUrl) return status("Base URL 不能为空", false);
+            if (state.providers[providerId] && !confirm(`Provider ${providerId} 已存在，是否覆盖基础信息？`)) return;
+            const authHeader = modalValue("newProviderAuthHeader");
+            const modelId = modalValue("newProviderModelId");
+            const provider = state.providers[providerId] || { models: [] };
+            provider.baseUrl = baseUrl;
+            provider.api = modalValue("newProviderApi") || "openai-completions";
+            const apiKey = modalValue("newProviderApiKey");
+            if (apiKey) provider.apiKey = apiKey;
+            provider.authHeader = authHeader === "" ? undefined : authHeader === "true";
+            provider.models = provider.models || [];
+            if (modelId && !provider.models.some((model) => model.id === modelId)) {
+              provider.models.push({
+                id: modelId,
+                name: modalValue("newProviderModelName") || modelId,
+                input: modalValue("newProviderInput").split(",").map((item) => item.trim()).filter(Boolean),
+                contextWindow: modalNumber("newProviderContext", 128000),
+                maxTokens: modalNumber("newProviderMaxTokens", 8192)
+              });
+            }
+            state.providers[providerId] = provider;
+            state.providerId = providerId;
+            state.modelId = modelId || provider.models[0]?.id || "";
+            modal.close();
+            renderAll();
+            status("Provider 已创建，确认无误后点击保存配置");
+          }
+        });
+      }
+
+      function openModelDialog() {
         if (!state.providerId) return status("请先选择 Provider", false);
-        const modelId = prompt("输入 modelId");
-        if (!modelId) return;
-        const provider = state.providers[state.providerId];
-        provider.models = provider.models || [];
-        provider.models.push({ id: modelId, name: modelId, input: ["text"], contextWindow: 128000, maxTokens: 8192 });
-        state.modelId = modelId;
-        renderAll();
-      };
+        modal.open({
+          title: "新增 Model",
+          description: `为 ${state.providerId} 添加模型。这里收集常用运行参数，复杂 cost 可添加后在工作台补充。`,
+          submitText: "创建 Model",
+          body: `
+            <div class="modal-grid">
+              <div><label>Model ID *</label><input id="newModelId" placeholder="model-id" /></div>
+              <div><label>Model Name</label><input id="newModelName" placeholder="展示名称，可留空" /></div>
+              <div><label>Context Window</label><input id="newModelContext" type="number" value="128000" /></div>
+              <div><label>Max Tokens</label><input id="newModelMaxTokens" type="number" value="8192" /></div>
+              <div><label>Input</label><input id="newModelInput" value="text,image" /></div>
+              <div><label>Reasoning</label><select id="newModelReasoning"><option value="">未设置</option><option value="true">true</option><option value="false">false</option></select></div>
+            </div>
+          `,
+          onSubmit: () => {
+            const modelId = modalValue("newModelId");
+            if (!modelId) return status("Model ID 不能为空", false);
+            const provider = state.providers[state.providerId];
+            provider.models = provider.models || [];
+            if (provider.models.some((model) => model.id === modelId)) return status(`Model ${modelId} 已存在`, false);
+            const reasoning = modalValue("newModelReasoning");
+            provider.models.push({
+              id: modelId,
+              name: modalValue("newModelName") || modelId,
+              input: modalValue("newModelInput").split(",").map((item) => item.trim()).filter(Boolean),
+              contextWindow: modalNumber("newModelContext", 128000),
+              maxTokens: modalNumber("newModelMaxTokens", 8192),
+              reasoning: reasoning === "" ? undefined : reasoning === "true"
+            });
+            state.modelId = modelId;
+            modal.close();
+            renderAll();
+            status("Model 已创建，确认无误后点击保存配置");
+          }
+        });
+      }
+
+      el("modalCloseBtn").onclick = () => modal.close();
+      el("modalCancelBtn").onclick = () => modal.close();
+      el("modalSubmitBtn").onclick = () => modal.submit && modal.submit();
+      el("modalBackdrop").onclick = (event) => { if (event.target === el("modalBackdrop")) modal.close(); };
+      window.addEventListener("keydown", (event) => { if (event.key === "Escape") modal.close(); });
+      el("addProviderBtn").onclick = openProviderDialog;
+      el("addModelBtn").onclick = openModelDialog;
       el("deleteModelBtn").onclick = () => {
         if (!state.providerId || !state.modelId) return;
         if (!confirm(`删除 Model：${state.providerId}/${state.modelId}？`)) return;
